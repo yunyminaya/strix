@@ -10,6 +10,8 @@
 
 ### The open-source AI pentesting tool. Autonomous AI hackers that find and fix your app’s vulnerabilities.
 
+**English** · [Español](README.es.md)
+
 <br/>
 
 
