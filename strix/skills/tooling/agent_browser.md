@@ -1,6 +1,7 @@
 ---
 name: agent_browser
 description: agent-browser CLI for headless Chrome via shell. Snapshot-and-ref workflow, click/fill/extract, screenshots, multi-tab, multi-session, network mocking. Pre-installed in the sandbox; invoke via exec_command.
+template: jinja
 ---
 
 
@@ -206,7 +207,7 @@ agent-browser snapshot -i
 ```
 
 Credentials in shell history are a leak. For anything sensitive, use the
-auth vault (see [references/authentication.md](references/authentication.md)):
+auth vault (see `references/authentication.md`):
 
 ```bash
 agent-browser auth save my-app --url https://app.example.com/login \
@@ -260,8 +261,9 @@ only for simple expressions.
 
 ### Screenshot
 
-`agent-browser screenshot` writes a PNG to disk in the sandbox. The
-shell command alone does **not** put the image into your context —
+`agent-browser screenshot` writes a PNG to disk in the sandbox.
+{% if supports_images %}
+The shell command alone does **not** put the image into your context —
 chain it with the SDK ``view_image`` tool to actually see it:
 
 ```bash
@@ -275,6 +277,12 @@ the full path on stdout — pass that to ``view_image``). If you need a
 specific filename, keep it inside that directory or a sibling hidden
 dir under ``/workspace``. Never write screenshots to ``/tmp`` —
 ``view_image`` rejects anything outside the workspace root.
+{% else %}
+You are running on a text-only model and cannot view images. Screenshots
+are only useful to you as a saved file (for example, login evidence).
+Drive the page from `snapshot -i` refs, `eval` for any DOM/JS state you
+need to read, and `text @ref` / `get text` for content extraction.
+{% endif %}
 
 ```bash
 agent-browser screenshot                        # path printed on stdout
@@ -283,6 +291,7 @@ agent-browser screenshot --full                 # full scroll height
 agent-browser screenshot --annotate             # numbered labels + legend keyed to snapshot refs
 ```
 
+{% if supports_images %}
 `--annotate` is designed for multimodal models: each label `[N]` maps
 to ref `@eN`. Take the annotated screenshot, then ``view_image`` it,
 and you can correlate visual layout with snapshot refs.
@@ -294,10 +303,10 @@ layout questions, captchas, custom widgets where the accessibility
 tree is incomplete).
 
 If ``view_image`` errors back at you (rejected image, "vision not
-supported", or similar), you are running on a text-only model — stop
-calling it and stop taking screenshots. Drive the page entirely from
-`snapshot -i` refs, `eval` for any DOM/JS state you need to read, and
-`text @ref` / `get text` for content extraction.
+supported", or similar), you can drive the page from `snapshot -i`
+refs, `eval` for any DOM/JS state you need to read, and `text @ref`
+or `get text` for content extraction.
+{% endif %}
 
 ### Handle multiple pages via tabs
 
@@ -358,7 +367,7 @@ agent-browser click @e3
 agent-browser record stop
 ```
 
-See [references/video-recording.md](references/video-recording.md) for
+See `references/video-recording.md` for
 codec options, GIF export, and more.
 
 ### Iframes
@@ -482,8 +491,8 @@ snapshot — fall back to `eval` in the iframe's origin or use the
 
 **Authentication expires mid-workflow**
 Use `--session-name <name>` or `state save`/`state load` so your session
-survives browser restarts. See [references/session-management.md](references/session-management.md)
-and [references/authentication.md](references/authentication.md).
+survives browser restarts. See `references/session-management.md`
+and `references/authentication.md`.
 
 ## Global flags worth knowing
 

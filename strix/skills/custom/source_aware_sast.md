@@ -1,6 +1,6 @@
 ---
 name: source-aware-sast
-description: Practical source-aware SAST and AST playbook for semgrep, ast-grep, gitleaks, and trivy fs
+description: Practical source-aware SAST and AST playbook for opengrep, ast-grep, gitleaks, and trivy fs
 ---
 
 # Source-Aware SAST Playbook
@@ -23,19 +23,19 @@ Run this baseline once per repository before deep narrowing:
 ART=/workspace/.source-aware
 mkdir -p "$ART"
 
-semgrep scan --config p/default --config p/golang --config p/secrets \
-  --metrics=off --json --output "$ART/semgrep.json" .
-# Build deterministic AST targets from semgrep scope (no hardcoded path guessing)
+opengrep scan --config /opt/opengrep-rules --taint-intrafile \
+  --json --output "$ART/opengrep.json" .
+# Build deterministic AST targets from opengrep scope (no hardcoded path guessing)
 python3 - <<'PY'
 import json
 from pathlib import Path
 
 art = Path("/workspace/.source-aware")
-semgrep_json = art / "semgrep.json"
+opengrep_json = art / "opengrep.json"
 targets_file = art / "sg-targets.txt"
 
 try:
-    data = json.loads(semgrep_json.read_text(encoding="utf-8"))
+    data = json.loads(opengrep_json.read_text(encoding="utf-8"))
 except Exception:
     targets_file.write_text("", encoding="utf-8")
     raise
@@ -63,17 +63,18 @@ trivy fs --scanners vuln,misconfig --timeout 30m --offline-scan \
   --format json --output "$ART/trivy-fs.json" . || true
 ```
 
-## Semgrep First Pass
+## Opengrep First Pass
 
-Use Semgrep as the default static triage pass:
+Use Opengrep as the default static triage pass. Rules are bundled offline in `/opt/opengrep-rules` (one directory per language, plus `generic/secrets`):
 
 ```bash
-# Preferred deterministic profile set (works with --metrics=off)
-semgrep scan --config p/default --config p/golang --config p/secrets \
-  --metrics=off --json --output /workspace/.source-aware/semgrep.json .
+# Full bundled ruleset
+opengrep scan --config /opt/opengrep-rules --taint-intrafile \
+  --json --output /workspace/.source-aware/opengrep.json .
 
-# If you choose auto config, do not combine it with --metrics=off
-semgrep scan --config auto --json --output /workspace/.source-aware/semgrep-auto.json .
+# Narrow to the target stack when the full set is slow or noisy
+opengrep scan --config /opt/opengrep-rules/python --config /opt/opengrep-rules/generic/secrets \
+  --taint-intrafile --json --output /workspace/.source-aware/opengrep-python.json .
 ```
 
 If diff scope is active, restrict to changed files first, then expand only when needed.
@@ -104,6 +105,39 @@ tree-sitter parse -q <file>
 ```
 
 Use outputs to improve route/symbol/sink maps for subsequent targeted scans.
+
+## Cross-Component Semantic Mapping
+
+Pattern scanners find local sinks but often miss a security decision in one component followed by a different interpretation in another. For complex middleware, proxies, frameworks, and plugin systems:
+
+1. Identify shared request/context fields and every writer/reader.
+2. Order the readers and writers by lifecycle phase: parse, route, authenticate, rewrite, authorize, dispatch, render.
+3. Mark fields whose semantic type changes (URL/path, MIME/handler, alias/package, external/internal route).
+4. Trace normal, error, retry, subrequest, and internal-redirect paths separately.
+5. Compare the representation checked by security code with the representation consumed by the final sink.
+
+Load `semantic_confusion` when this graph reveals overloaded fields, multiple parsers, normalization steps, or protocol translation.
+
+## Resolution and Namespace Risks
+
+In repositories with developer tooling, plugins, templates, or package runners, inspect lookup order rather than only dependency versions:
+
+- command runners that fall back from local binaries or `PATH` to a public registry
+- scoped/private package names exposing unscoped binary or alias names
+- plugin, template, module, and autoload search paths writable by a lower-privileged actor
+- CI/composite actions and devcontainer/bootstrap scripts that transitively execute package commands
+- missing local artifacts that silently activate a remote or broader fallback
+
+Record candidate names and verify ownership/existence without claiming or publishing them. A namespace gap is reportable only when the target actually resolves or executes the attacker-contestable name under realistic conditions.
+
+For npm/JavaScript, distinguish the package name from the executable name and
+model the actual working directory, dependency tree, global bin directory,
+cache, and registry configuration. `load_skill(["npx_confusion"])` when a bare
+`npx`/`npm exec` command may fall back from a missing executable to a public
+package. Trivy cannot detect this class because no installed package version
+needs to be vulnerable.
+
+Load `infrastructure_lifecycle` when source, images, firmware, or history contain abandoned domains, provider resources, package namespaces, update URLs, mail identities, telemetry, or control endpoints. Use targeted string/dataflow analysis when this is the research question; the full baseline scanner bundle is not required merely to trace one endpoint consumer.
 
 ## Secret and Supply Chain Coverage
 
@@ -144,6 +178,8 @@ lighter syntax/anti-pattern check when ESLint is over-eager. The
 step to mine those bundles for endpoint candidates.
 
 ## Converting Static Signals Into Exploits
+
+When source contains model-provider SDKs, prompt templates, retrieval/vector stores, tool/function calling, model loading, training/feedback pipelines, or token/agent-loop accounting, load `llm_applications`. Use its OWASP 2026 LLM01-LLM10 map to trace data provenance, model output, retrieval authorization, tool authority, and resource multipliers rather than treating the provider call as the sink.
 
 1. Rank candidates by impact and exploitability.
 2. Trace source-to-sink flow for top candidates.
